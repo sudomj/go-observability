@@ -1,0 +1,64 @@
+services:
+  go-api:
+    build: .
+    labels:
+      logging: "promtail"
+      logging_jobname: "containerlogs"
+    ports:
+      - "8080:8080"
+    environment:
+      - APP_PORT=8080
+  logs-loki:
+    container_name: logs-loki
+    hostname: loki
+    image: grafana/loki:latest
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - loki
+  grafana:
+    container_name: grafana-obs
+    image: grafana/grafana:latest
+    hostname: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+    entrypoint:
+      - sh
+      - -euc
+      - |
+        mkdir -p /etc/grafana/provisioning/datasources
+        cat <<EOF > /etc/grafana/provisioning/datasources/ds.yaml
+        apiVersion: 1
+        datasources:
+        - name: Loki
+          type: loki
+          access: proxy
+          orgId: 1
+          url: http://loki:3100
+          basicAuth: false
+          isDefault: true
+          version: 1
+          editable: false
+        EOF
+        /run.sh
+    networks:
+      - loki
+  promtail:
+    container_name: promtail-collector
+    image: grafana/promtail:latest
+    volumes:
+      - "/var/log:/var/log"
+      - "/var/lib/docker/containers:/var/lib/docker/containers"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "./promtail-config.yaml:/etc/promtail/config.yaml"
+    command: "-config.file=/etc/promtail/config.yaml"
+    networks:
+      - loki
+
+networks:
+  loki:
